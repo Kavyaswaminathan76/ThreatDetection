@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+env/
+.env
+
+# ML Datasets & Models
+cloud-threat-detection/data/raw/
+cloud-threat-detection/data/cleaned/
+cloud-threat-detection/data/features/
+*.pkl
+*.csv
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+# Core data processing
+pandas>=1.3     # For dataframes and CSV handling
+numpy>=1.21      # For numerical operations
+
+# Machine learning
+scikit-learn>=1.0  # For ML algorithms like RandomForest, IsolationForest
+joblib>=1.1        # For saving/loading trained models efficiently
+
+# Web / Dashboard (optional for alerts)
+flask>=2.0         # To build a simple web or API interface later
+
+# Visualization (optional for charts)
+matplotlib>=3.4    # For plotting graphs and metrics
