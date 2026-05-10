@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // CORE DATA MODEL
 // ============================================================
 
@@ -718,11 +718,145 @@ function renderRecLog() {
 // ATTACK DETECTION
 // ============================================================
 
+// Real metrics from CICIDS2017 training (run_pipeline.py output)
+const ML_METRICS = {
+  dataset: "CICIDS2017 (Friday DDoS + PortScan)",
+  trainSamples: 348560,
+  testSamples: 87141,
+  features: 6,
+  trainingTimeSec: 49.73,
+  rf: {
+    accuracy: 80.59,
+    precision: 81.25,
+    recall: 80.59,
+    f1: 80.48,
+    // Confusion matrix: [[TN, FP], [FN, TP]]
+    cm: [[31746, 11628], [5282, 38485]]
+  },
+  isoforest: {
+    anomaliesDetected: 4304,
+    totalTested: 87141,
+    anomalyRatePct: 4.94
+  },
+  topFeatures: [
+    { name: "total_bytes",      importance: 0.506 },
+    { name: "mean_bytes",       importance: 0.494 },
+    { name: "total_flows",      importance: 0.000 },
+    { name: "unique_dst_ips",   importance: 0.000 },
+    { name: "unique_dst_ports", importance: 0.000 },
+    { name: "proto_entropy",    importance: 0.000 },
+  ]
+};
+
 function renderAttacksPage() {
   populateUserSelect('slander-target');
   populateUserSelect('sybil-attacker');
   populateUserSelect('collusion-target');
   updateAttackStats();
+  renderMLMetrics();
+}
+
+function renderMLMetrics() {
+  const el = document.getElementById('ml-metrics-panel');
+  if (!el) return;
+
+  const m = ML_METRICS;
+  const cm = m.rf.cm;
+  const tn = cm[0][0], fp = cm[0][1], fn = cm[1][0], tp = cm[1][1];
+  const total = tn + fp + fn + tp;
+
+  // Feature importance bars (max = 0.506)
+  const maxImp = Math.max(...m.topFeatures.map(f => f.importance));
+  const featureBars = m.topFeatures.map(f => {
+    const pct = maxImp > 0 ? (f.importance / maxImp * 100).toFixed(1) : 0;
+    const color = f.importance > 0.3 ? 'var(--accent)' : f.importance > 0.1 ? '#10b981' : 'var(--text3)';
+    return `
+      <div class="trust-bar-wrap" style="margin-bottom:6px">
+        <div class="trust-bar-label">
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px">${f.name}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:${color}">${(f.importance * 100).toFixed(1)}%</span>
+        </div>
+        <div class="trust-bar"><div class="trust-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <!-- Dataset info banner -->
+    <div class="alert alert-info" style="margin-bottom:16px;font-size:12px">
+      📊 <strong>Real ML results</strong> trained on <strong>${m.dataset}</strong> &nbsp;|&nbsp;
+      ${m.trainSamples.toLocaleString()} training samples &nbsp;|&nbsp;
+      ${m.testSamples.toLocaleString()} test samples &nbsp;|&nbsp;
+      ${m.features} features &nbsp;|&nbsp; Training time: ${m.trainingTimeSec}s
+    </div>
+
+    <div class="grid-2" style="gap:16px;margin-bottom:16px">
+      <!-- RandomForest Metrics -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">🌲 RandomForest Classifier</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          ${[
+            ['Accuracy',  m.rf.accuracy,  '#00d4ff'],
+            ['Precision', m.rf.precision, '#10b981'],
+            ['Recall',    m.rf.recall,    '#f59e0b'],
+            ['F1-Score',  m.rf.f1,        '#a78bfa'],
+          ].map(([label, val, color]) => `
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:22px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:${color}">${val}%</div>
+              <div style="font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-top:4px">${label}</div>
+            </div>`).join('')}
+        </div>
+        <!-- Confusion Matrix -->
+        <div class="card-title" style="margin-bottom:8px">Confusion Matrix</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:12px">
+          <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;color:#10b981">${tn.toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--text3)">True Negative</div>
+          </div>
+          <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;color:#ef4444">${fp.toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--text3)">False Positive</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;color:#f59e0b">${fn.toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--text3)">False Negative</div>
+          </div>
+          <div style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:18px;font-weight:700;color:var(--accent)">${tp.toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--text3)">True Positive</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text3);text-align:center">
+          ${total.toLocaleString()} total test samples · Model: RandomForest (100 trees, max_depth=20)
+        </div>
+      </div>
+
+      <!-- IsoForest + Feature Importance -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card" style="margin-bottom:0">
+          <div class="card-title">🔍 IsolationForest Anomaly Detector</div>
+          <div class="metric-row">
+            <span class="metric-name">Total Tested</span>
+            <span class="metric-val" style="font-family:'IBM Plex Mono',monospace">${m.isoforest.totalTested.toLocaleString()}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-name">Anomalies Detected</span>
+            <span class="metric-val trust-low" style="font-family:'IBM Plex Mono',monospace">${m.isoforest.anomaliesDetected.toLocaleString()}</span>
+          </div>
+          <div class="metric-row">
+            <span class="metric-name">Anomaly Rate</span>
+            <span class="metric-val trust-med" style="font-family:'IBM Plex Mono',monospace">${m.isoforest.anomalyRatePct}%</span>
+          </div>
+          <div class="trust-bar-wrap" style="margin-top:10px">
+            <div class="trust-bar-label"><span>Anomaly Rate</span><span class="trust-med">${m.isoforest.anomalyRatePct}%</span></div>
+            <div class="trust-bar"><div class="trust-bar-fill medium" style="width:${m.isoforest.anomalyRatePct}%"></div></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0">
+          <div class="card-title">📈 Feature Importances</div>
+          ${featureBars}
+        </div>
+      </div>
+    </div>`;
 }
 
 function updateAttackStats() {

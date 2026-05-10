@@ -1,0 +1,25 @@
+{
+  "dataset": "CICIDS2017 (Friday DDoS + PortScan)",
+  "train_samples": 348560,
+  "test_samples": 87141,
+  "features": 6,
+  "training_time_s": 49.73,
+  "random_forest": {
+    "accuracy": 80.59,
+    "precision": 81.25,
+    "recall": 80.59,
+    "f1_score": 80.48
+  },
+  "isolation_forest": {
+    "anomalies_detected": 4304,
+    "anomaly_rate_pct": 4.94
+  },
+  "top_features": [
+    "total_bytes",
+    "mean_bytes",
+    "total_flows",
+    "unique_dst_ips",
+    "unique_dst_ports",
+    "proto_entropy"
+  ]
+}
