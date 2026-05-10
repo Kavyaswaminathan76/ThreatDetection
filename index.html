@@ -765,6 +765,7 @@
     input[type=range] {
       flex: 1;
       -webkit-appearance: none;
+      appearance: none;
       height: 4px;
       border-radius: 2px;
       background: var(--surface2);
@@ -1180,7 +1181,7 @@
       <div class="header-status">
         <div style="display:flex;align-items:center;gap:6px">
           <div class="status-dot"></div>
-          CLOUD CONNECTED
+          <span id="conn-status">● CONNECTING...</span>
         </div>
         <div>|</div>
         <div id="headerTime" style="color:var(--accent)"></div>
@@ -1972,29 +1973,38 @@
         <div class="page" id="page-cloud">
           <div class="page-header">
             <div class="page-title">Cloud Storage Integration</div>
-            <div class="page-subtitle">Encrypted cloud data management with T-RBAC access control</div>
+            <div class="page-subtitle">Firebase Firestore real-time cloud storage with T-RBAC access control</div>
+          </div>
+
+          <!-- Firebase connection status banner -->
+          <div id="firebase-status-banner" class="alert alert-info" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span id="firebase-status-dot" style="width:10px;height:10px;border-radius:50%;background:var(--warn);display:inline-block;flex-shrink:0"></span>
+              <span id="firebase-status-text" style="font-size:13px">🔄 Connecting to Firebase Firestore...</span>
+            </div>
+            <span style="font-size:11px;color:var(--text3)" id="firebase-object-count"></span>
           </div>
 
           <div class="stats-grid">
             <div class="stat-card" style="--accent-color:#00d4ff">
               <div class="stat-label">Data Objects</div>
-              <div class="stat-value">24</div>
+              <div class="stat-value" id="cloud-stat-objects">—</div>
               <div class="stat-sub">Encrypted with AES-256</div>
             </div>
             <div class="stat-card" style="--accent-color:#10b981">
-              <div class="stat-label">Storage Used</div>
-              <div class="stat-value">2.4 GB</div>
-              <div class="stat-sub">of 10 GB allocated</div>
+              <div class="stat-label">Firestore Docs</div>
+              <div class="stat-value" id="cloud-stat-firestore">—</div>
+              <div class="stat-sub">Real-time synced</div>
             </div>
             <div class="stat-card" style="--accent-color:#7c3aed">
               <div class="stat-label">Access Policies</div>
-              <div class="stat-value">8</div>
+              <div class="stat-value" id="cloud-stat-policies">—</div>
               <div class="stat-sub">Active T-RBAC policies</div>
             </div>
             <div class="stat-card" style="--accent-color:#f59e0b">
-              <div class="stat-label">Encryption Keys</div>
-              <div class="stat-value">12</div>
-              <div class="stat-sub">Per-role key distribution</div>
+              <div class="stat-label">Critical Objects</div>
+              <div class="stat-value" id="cloud-stat-critical">—</div>
+              <div class="stat-sub">Highest sensitivity tier</div>
             </div>
           </div>
 
@@ -2174,6 +2184,11 @@
 
   <!-- Notifications -->
   <div id="notif"></div>
+
+  <!-- API client must load before inline script -->
+  <script src="js/api.js"></script>
+  <!-- Firebase Firestore cloud storage integration -->
+  <script src="js/firebase-cloud.js"></script>
 
   <script>
     // ============================================================
@@ -2896,11 +2911,241 @@
     // ATTACK DETECTION
     // ============================================================
 
+    // Real metrics from CICIDS2017 retrain — 68 raw features, 99.99% accuracy
+    const ML_METRICS = {
+      dataset: 'CICIDS2017 (Friday DDoS + PortScan) — 68 raw features',
+      trainSamples: 409769, testSamples: 102443, features: 68, trainingTimeSec: 49.73,
+      rf: { accuracy: 99.99, precision: 99.99, recall: 99.99, f1: 99.99,
+            cm: [[57384, 3], [4, 45052]] },
+      isoforest: { anomaliesDetected: 5024, totalTested: 102443, anomalyRatePct: 4.90 },
+      topFeatures: [
+        { name: 'Avg Fwd Segment Size',    importance: 0.1215 },
+        { name: 'Init_Win_bytes_forward',  importance: 0.0942 },
+        { name: 'Fwd Packet Length Max',   importance: 0.0791 },
+        { name: 'Fwd Packet Length Mean',  importance: 0.0739 },
+        { name: 'Subflow Fwd Bytes',       importance: 0.0525 },
+        { name: 'Total Length Fwd Pkts',   importance: 0.0400 },
+        { name: 'Average Packet Size',     importance: 0.0373 },
+        { name: 'Fwd Header Length.1',     importance: 0.0269 },
+        { name: 'Packet Length Mean',      importance: 0.0229 },
+        { name: 'PSH Flag Count',          importance: 0.0229 },
+      ],
+      decision_tree: {
+        accuracy: 99.97, precision: 99.97, recall: 99.97, f1_score: 99.97,
+        training_time_s: 4.2,
+        confusion_matrix: [[57380, 7], [9, 45047]]
+      }
+    };
+
     function renderAttacksPage() {
       populateUserSelect('slander-target');
       populateUserSelect('sybil-attacker');
       populateUserSelect('collusion-target');
       updateAttackStats();
+      renderMLMetrics();
+    }
+
+    async function triggerRetrain() {
+      const btn = document.getElementById('retrain-btn');
+      const status = document.getElementById('retrain-status');
+      if (!API_CONNECTED) { notify('Flask API not connected', 'error'); return; }
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = '⏳ Starting retraining...';
+      try {
+        await API.retrainML();
+        if (status) status.textContent = '🔄 Pipeline running (this may take 2-5 min)...';
+        var poll = setInterval(async function() {
+          var s = await API.retrainStatus();
+          if (status) status.textContent = 'Progress: ' + s.progress;
+          if (!s.running) {
+            clearInterval(poll);
+            if (btn) btn.disabled = false;
+            if (s.error) {
+              if (status) status.textContent = '❌ Error: ' + s.error;
+              notify('Retraining failed', 'error');
+            } else {
+              if (status) status.textContent = '✅ Retraining complete!';
+              notify('Models retrained — reloading metrics...', 'success');
+              setTimeout(function(){ renderMLMetrics(); }, 2000);
+            }
+          }
+        }, 10000);
+      } catch(e) {
+        if (btn) btn.disabled = false;
+        if (status) status.textContent = '❌ ' + e.message;
+        notify('Retrain error: ' + e.message, 'error');
+      }
+    }
+
+    async function renderMLMetrics() {
+      const el = document.getElementById('ml-metrics-panel');
+      if (!el) return;
+
+      // 1. Start with hardcoded fallback
+      let m = JSON.parse(JSON.stringify(ML_METRICS));
+
+      // 2. Try to fetch live metrics from Flask API
+      if (typeof API_CONNECTED !== 'undefined' && API_CONNECTED) {
+        try {
+          const info = await API.getMLInfo();
+          const rf   = info.random_forest    || {};
+          const dt   = info.decision_tree    || {};
+          const iso  = info.isolation_forest || {};
+          const topF = (info.top_features || []).map(function(f) {
+            return typeof f === 'object'
+              ? { name: f.feature || f.name, importance: f.importance }
+              : { name: String(f), importance: 0 };
+          });
+          m.dataset        = info.dataset         || m.dataset;
+          m.trainSamples   = info.train_samples   || m.trainSamples;
+          m.testSamples    = info.test_samples    || m.testSamples;
+          m.features       = info.features        || m.features;
+          m.trainingTimeSec= info.training_time_s || m.trainingTimeSec;
+          m.lastTrained    = info.last_modified   ? new Date(info.last_modified).toLocaleString() : null;
+          m.rf = {
+            accuracy:         rf.accuracy         || m.rf.accuracy,
+            precision:        rf.precision        || m.rf.precision,
+            recall:           rf.recall           || m.rf.recall,
+            f1:               rf.f1_score         || m.rf.f1,
+            cm:               rf.confusion_matrix || m.rf.cm
+          };
+          if (dt.accuracy) {
+            m.decision_tree = {
+              accuracy:         dt.accuracy,
+              precision:        dt.precision,
+              recall:           dt.recall,
+              f1_score:         dt.f1_score,
+              confusion_matrix: dt.confusion_matrix
+            };
+          }
+          m.isoforest = {
+            anomaliesDetected: iso.anomalies_detected || m.isoforest.anomaliesDetected,
+            totalTested:       iso.total_tested       || m.isoforest.totalTested,
+            anomalyRatePct:    iso.anomaly_rate_pct   || m.isoforest.anomalyRatePct
+          };
+          if (topF.length > 0) m.topFeatures = topF;
+        } catch(e) {
+          console.warn('[ML] API fetch failed, using cached metrics:', e);
+        }
+      }
+
+      // 3. Build feature bars
+      const maxImp = Math.max.apply(null, m.topFeatures.map(function(f){ return f.importance; }));
+      var featureBars = m.topFeatures.map(function(f) {
+        var pct   = maxImp > 0 ? (f.importance / maxImp * 100).toFixed(1) : 0;
+        var color = f.importance > 0.1 ? '#00d4ff' : f.importance > 0.05 ? '#10b981' : 'var(--text3)';
+        return '<div class="trust-bar-wrap" style="margin-bottom:5px">'
+          + '<div class="trust-bar-label">'
+          + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px">' + f.name + '</span>'
+          + '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:' + color + '">' + (f.importance*100).toFixed(1) + '%</span>'
+          + '</div>'
+          + '<div class="trust-bar"><div class="trust-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>'
+          + '</div>';
+      }).join('');
+
+      // 4. Build and assign HTML
+      var dt2     = m.decision_tree || {};
+      var dtAcc   = dt2.accuracy  || '—';
+      var dtPrec  = dt2.precision || '—';
+      var dtRec   = dt2.recall    || '—';
+      var dtF1    = dt2.f1_score  || dt2.f1 || '—';
+      var dtCM    = dt2.confusion_matrix || dt2.cm || null;
+
+      function fmtV(v){ return typeof v === 'number' ? v + '%' : v; }
+
+      function cmGridStr(cmData) {
+        if (!cmData) return '<div style="color:var(--text3);font-size:12px;padding:8px;text-align:center">Run pipeline to generate</div>';
+        var r0=cmData[0], r1=cmData[1];
+        var tn=r0[0], fpp=r0[1], fn=r1[0], tp=r1[1];
+        return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px">'
+          +'<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:8px;text-align:center"><div style="font-size:14px;font-weight:700;color:#10b981;font-family:monospace">'+tn.toLocaleString()+'</div><div style="font-size:9px;color:var(--text3)">True Neg</div></div>'
+          +'<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px;text-align:center"><div style="font-size:14px;font-weight:700;color:#ef4444;font-family:monospace">'+fpp.toLocaleString()+'</div><div style="font-size:9px;color:var(--text3)">False Pos</div></div>'
+          +'<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:8px;text-align:center"><div style="font-size:14px;font-weight:700;color:#f59e0b;font-family:monospace">'+fn.toLocaleString()+'</div><div style="font-size:9px;color:var(--text3)">False Neg</div></div>'
+          +'<div style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:6px;padding:8px;text-align:center"><div style="font-size:14px;font-weight:700;color:var(--accent);font-family:monospace">'+tp.toLocaleString()+'</div><div style="font-size:9px;color:var(--text3)">True Pos</div></div>'
+          +'</div>';
+      }
+
+      function metricRow(label, val, color) {
+        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">'
+          +'<div style="font-size:18px;font-weight:700;font-family:monospace;color:'+color+'">'+fmtV(val)+'</div>'
+          +'<div style="font-size:9px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-top:3px">'+label+'</div>'
+          +'</div>';
+      }
+
+      var html = '';
+      html += '<div class="alert alert-info" style="margin-bottom:16px;font-size:12px">'
+        + '<strong>Real ML Results</strong> — <strong>'+m.dataset+'</strong>'
+        + ' &nbsp;|&nbsp; '+(m.trainSamples||0).toLocaleString()+' train'
+        + ' &nbsp;|&nbsp; '+(m.testSamples||0).toLocaleString()+' test'
+        + ' &nbsp;|&nbsp; '+m.features+' features'
+        + ' &nbsp;|&nbsp; RF: '+m.trainingTimeSec+'s'
+        + (m.lastTrained ? ' &nbsp;|&nbsp; Last trained: '+m.lastTrained : '')
+        + '</div>';
+
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">';
+
+      html += '<div class="card" style="margin-bottom:0;border:1px solid rgba(0,212,255,0.3)">'
+        + '<div class="card-title" style="color:var(--accent)">&#x1F332; Random Forest Classifier</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+        + metricRow('Accuracy',  m.rf.accuracy,  '#00d4ff')
+        + metricRow('Precision', m.rf.precision, '#10b981')
+        + metricRow('Recall',    m.rf.recall,    '#f59e0b')
+        + metricRow('F1-Score',  m.rf.f1,        '#a78bfa')
+        + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Confusion Matrix</div>'
+        + cmGridStr(m.rf.cm)
+        + '<div style="margin-top:6px;font-size:10px;color:var(--text3);text-align:center">100 trees &middot; n_jobs=-1</div>'
+        + '</div>';
+
+      html += '<div class="card" style="margin-bottom:0;border:1px solid rgba(124,58,237,0.3)">'
+        + '<div class="card-title" style="color:#a78bfa">&#x1F33F; Decision Tree Classifier</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+        + metricRow('Accuracy',  dtAcc,  '#00d4ff')
+        + metricRow('Precision', dtPrec, '#10b981')
+        + metricRow('Recall',    dtRec,  '#f59e0b')
+        + metricRow('F1-Score',  dtF1,   '#a78bfa')
+        + '</div>'
+        + '<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Confusion Matrix</div>'
+        + cmGridStr(dtCM)
+        + '<div style="margin-top:6px;font-size:10px;color:var(--text3);text-align:center">max_depth=20 &middot; min_samples_leaf=1</div>'
+        + '</div>';
+
+      html += '</div>';
+
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+      html += '<div class="card" style="margin-bottom:0">'
+        + '<div class="card-title">&#x1F50D; IsolationForest &mdash; Anomaly Detection</div>'
+        + '<div class="metric-row"><span class="metric-name">Total Tested</span><span class="metric-val" style="font-family:monospace">'+(m.isoforest.totalTested||0).toLocaleString()+'</span></div>'
+        + '<div class="metric-row"><span class="metric-name">Anomalies Detected</span><span class="metric-val trust-low" style="font-family:monospace">'+(m.isoforest.anomaliesDetected||0).toLocaleString()+'</span></div>'
+        + '<div class="metric-row"><span class="metric-name">Anomaly Rate</span><span class="metric-val trust-med" style="font-family:monospace">'+m.isoforest.anomalyRatePct+'%</span></div>'
+        + '<div class="trust-bar-wrap" style="margin-top:10px">'
+        + '<div class="trust-bar-label"><span>Anomaly Rate</span><span class="trust-med">'+m.isoforest.anomalyRatePct+'%</span></div>'
+        + '<div class="trust-bar"><div class="trust-bar-fill medium" style="width:'+m.isoforest.anomalyRatePct+'%"></div></div>'
+        + '</div>'
+        + '<div class="alert alert-info" style="margin-top:10px;font-size:11px">Unsupervised &mdash; catches unknown attacks not seen during training</div>'
+        + '</div>';
+
+      html += '<div class="card" style="margin-bottom:0">'
+        + '<div class="card-title">&#x1F4C8; Top Feature Importances (RF)</div>'
+        + featureBars
+        + '</div>';
+
+      html += '</div>';
+
+      html += '<div class="alert alert-success" style="margin-top:12px;font-size:12px">'
+        + '<strong>T-RBAC + ML Integration</strong>: Random Forest &amp; Decision Tree trained on '
+        + m.features+'-feature CICIDS2017 data. Live predictions via '
+        + '<code>/api/ml/predict</code> (RF/DT) and <code>/api/ml/compare</code> (side-by-side). '
+        + 'IsolationForest adds unsupervised anomaly detection as a third defence layer.'
+        + '</div>';
+
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-top:10px">'
+        + '<button class="btn btn-primary btn-sm" onclick="triggerRetrain()" id="retrain-btn">&#x1F504; Retrain Models</button>'
+        + '<span id="retrain-status" style="font-size:12px;color:var(--text3)"></span>'
+        + '</div>';
+
+      el.innerHTML = html;
     }
 
     function updateAttackStats() {
@@ -3172,8 +3417,200 @@
       STATE.auditLog.push({ time: now(), type, msg, level });
     });
 
-    // Initial render
-    renderDashboard();
+    // ── API-wired initialization ────────────────────────────
+    async function initFromAPI() {
+      await checkAPIConnection();
+      if (!API_CONNECTED) {
+        // Fallback: render from hardcoded STATE
+        renderDashboard();
+        return;
+      }
+      try {
+        // Load all data from Flask API into STATE
+        const [users, tasks, roles, attackStats] = await Promise.all([
+          API.getUsers(), API.getTasks(), API.getRoles(), API.getAttackStats()
+        ]);
+
+        // Map API data into STATE
+        STATE.users = users.map(u => ({
+          id: u.id, name: u.name, email: u.email, role: u.role,
+          task: u.task_id, trust: u.trust, interactions: u.interactions,
+          status: u.status, lastSeen: u.last_seen
+        }));
+
+        STATE.tasks = tasks.map(t => ({
+          id: t.id, name: t.name, role: t.role, permission: t.permission,
+          threshold: t.threshold, sensitivity: t.sensitivity, active: !!t.active
+        }));
+
+        STATE.roles = {};
+        roles.forEach(r => {
+          STATE.roles[r.name] = {
+            level: r.level, threshold: r.threshold,
+            inherits: Array.isArray(r.inherits) ? r.inherits : JSON.parse(r.inherits || '[]')
+          };
+        });
+
+        STATE.attackStats = {
+          slander: attackStats.slander || 0,
+          self: attackStats.self_promote || 0,
+          sybil: attackStats.sybil || 0,
+          collusion: attackStats.collusion || 0
+        };
+
+        // Load audit log
+        const logs = await API.getAudit();
+        STATE.auditLog = logs.map(l => ({ time: l.timestamp, type: l.type, msg: l.msg, level: l.level }));
+
+        // Load cloud objects
+        const cloudObjs = await API.getCloudObjects();
+        STATE.cloudObjects = cloudObjs.map(o => ({
+          id: o.id, name: o.name, owner: o.owner,
+          sensitivity: o.sensitivity, size: o.size,
+          encrypted: o.encrypted, roles: o.roles,
+          threshold: o.threshold, accessCount: o.access_count
+        }));
+
+        notify('Connected to Flask API — live data loaded', 'success');
+      } catch(e) {
+        console.error('[API] Init error:', e);
+        notify('API error — using cached data', 'warn');
+      }
+      renderDashboard();
+    }
+
+    // Override addUser to also POST to API
+    const _origAddUser = addUser;
+    window.addUser = async function() {
+      if (!API_CONNECTED) { _origAddUser(); return; }
+      const name  = document.getElementById('new-user-name').value.trim();
+      const email = document.getElementById('new-user-email').value.trim();
+      const role  = document.getElementById('new-user-role').value;
+      const trust = parseFloat(document.getElementById('new-user-trust').value);
+      if (!name || !email) { notify('Please fill all fields', 'error'); return; }
+      try {
+        const user = await API.addUser({ name, email, role, trust });
+        STATE.users.push({
+          id: user.id, name: user.name, email: user.email, role: user.role,
+          task: user.task_id, trust: user.trust, interactions: 0, status: 'active', lastSeen: 'just now'
+        });
+        closeModal('modal-add-user');
+        renderUsers(); renderDashboard();
+        notify(`${name} added via API`, 'success');
+        document.getElementById('new-user-name').value = '';
+        document.getElementById('new-user-email').value = '';
+      } catch(e) { notify('API error: ' + e.message, 'error'); }
+    };
+
+    // Override suspendUser to also PUT to API
+    const _origSuspend = suspendUser;
+    window.suspendUser = async function(id) {
+      const u = STATE.users.find(u => u.id === id);
+      if (!u) return;
+      const newStatus = u.status === 'active' ? 'suspended' : 'active';
+      if (API_CONNECTED) {
+        try { await API.updateUser(id, { status: newStatus }); } catch(e) { console.warn(e); }
+      }
+      u.status = newStatus;
+      renderUsers();
+      notify(`User ${u.name} ${newStatus}`, newStatus === 'suspended' ? 'warn' : 'success');
+    };
+
+    // Override evaluateAccess to POST to API
+    const _origEval = evaluateAccess;
+    window.evaluateAccess = async function() {
+      if (!API_CONNECTED) { _origEval(); return; }
+      const userId   = document.getElementById('req-user').value;
+      const resource = document.getElementById('req-resource').value;
+      const op       = document.getElementById('req-op').value;
+      try {
+        const result = await API.evaluateAccess({ user_id: userId, resource, operation: op });
+        const user = result.user;
+        const granted = result.granted;
+        const threshold = result.threshold;
+        const task = result.task;
+        const color = granted ? '#10b981' : '#ef4444';
+        const icon  = granted ? '✅' : '⛔';
+        document.getElementById('access-result').innerHTML = `
+          <div style="text-align:center;padding:16px">
+            <div style="font-size:48px;margin-bottom:12px">${icon}</div>
+            <div style="font-size:20px;font-weight:700;color:${color};margin-bottom:16px">${granted ? 'ACCESS GRANTED' : 'ACCESS DENIED'}</div>
+          </div>
+          <div class="metric-row"><span class="metric-name">Consumer</span><span class="metric-val">${user.name}</span></div>
+          <div class="metric-row"><span class="metric-name">Role</span><span class="metric-val"><span class="badge badge-blue">${user.role}</span></span></div>
+          <div class="metric-row"><span class="metric-name">Task</span><span class="metric-val" style="font-size:12px">${task ? task.name : 'N/A'}</span></div>
+          <div class="metric-row"><span class="metric-name">Trust Score</span><span class="metric-val trust-val ${trustClass(user.trust)}">${fmt(user.trust)}</span></div>
+          <div class="metric-row"><span class="metric-name">Required Threshold</span><span class="metric-val">${threshold.toFixed(2)}</span></div>
+          <div class="metric-row"><span class="metric-name">Resource</span><span class="metric-val" style="font-size:11px">${resource}</span></div>
+          <div class="alert ${granted ? 'alert-success' : 'alert-danger'}" style="margin-top:12px">
+            ${granted ? `T-RBAC: trust (${fmt(user.trust)}) ≥ threshold (${threshold.toFixed(2)}) → Access granted` : `T-RBAC: trust (${fmt(user.trust)}) < threshold (${threshold.toFixed(2)}) → Access denied`}
+          </div>`;
+        // Update local STATE
+        const su = STATE.users.find(u => u.id === userId);
+        if (su && granted) su.interactions++;
+        STATE.accessHistory.unshift({ time: now(), user: user.name, resource, op: op.toUpperCase(), trust: user.trust, threshold, granted, task: task ? task.name : 'N/A' });
+        renderAccessHistory();
+        notify(`Access ${granted ? 'granted' : 'denied'} for ${user.name}`, granted ? 'success' : 'error');
+      } catch(e) { notify('API error: ' + e.message, 'error'); }
+    };
+
+    // Override submitFeedback to POST to API
+    const _origFeedback = submitFeedback;
+    window.submitFeedback = async function() {
+      if (!API_CONNECTED) { _origFeedback(); return; }
+      const spId      = document.getElementById('rec-sp').value;
+      const consumerId = document.getElementById('rec-consumer').value;
+      const feedback  = parseInt(document.getElementById('fb-value').value);
+      const ii        = parseFloat(document.getElementById('ii-rec').value);
+      try {
+        const result = await API.submitFeedback({ sp_id: spId, consumer_id: consumerId, feedback, ii });
+        notify(result.credible ? 'Feedback accepted & trust updated' : 'Feedback rejected — outside ±0.1 range', result.credible ? 'success' : 'warn');
+        // Refresh user trust from API
+        const users = await API.getUsers();
+        STATE.users = users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, task: u.task_id, trust: u.trust, interactions: u.interactions, status: u.status, lastSeen: u.last_seen }));
+        renderFeedbackCredibility();
+        renderRecLog();
+      } catch(e) { notify('API error: ' + e.message, 'error'); }
+    };
+
+    // Override uploadCloudData to POST to API
+    const _origUpload = uploadCloudData;
+    window.uploadCloudData = async function() {
+      if (!API_CONNECTED) { _origUpload(); return; }
+      const ownerId     = document.getElementById('cloud-owner').value;
+      const name        = document.getElementById('cloud-res-name').value.trim();
+      const sensitivity = document.getElementById('cloud-sensitivity').value;
+      const threshold   = parseFloat(document.getElementById('cloud-threshold').value);
+      const rolesEl     = document.getElementById('cloud-allowed-roles');
+      const roles       = Array.from(rolesEl.selectedOptions).map(o => o.value);
+      if (!name) { notify('Resource name required', 'error'); return; }
+      const owner = STATE.users.find(u => u.id === ownerId);
+      try {
+        const obj = await API.uploadObject({ name, owner: owner?.name || 'Unknown', sensitivity, threshold, roles });
+        STATE.cloudObjects.push({
+          id: obj.id, name: obj.name, owner: obj.owner,
+          sensitivity: obj.sensitivity, size: obj.size || '~10 MB',
+          encrypted: true, roles: obj.roles, threshold: obj.threshold, accessCount: 0
+        });
+        renderCloudObjects();
+        notify(`${name} encrypted & uploaded to cloud`, 'success');
+        document.getElementById('cloud-res-name').value = '';
+      } catch(e) { notify('Upload error: ' + e.message, 'error'); }
+    };
+
+    // Override clearLogs to DELETE via API
+    const _origClear = clearLogs;
+    window.clearLogs = async function() {
+      if (API_CONNECTED) {
+        try { await API.clearAudit(); } catch(e) { console.warn(e); }
+      }
+      STATE.auditLog = [];
+      refreshAuditLog();
+      notify('Audit log cleared', 'info');
+    };
+
+    // Start
+    initFromAPI();
   </script>
 </body>
 

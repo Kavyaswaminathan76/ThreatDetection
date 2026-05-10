@@ -1,25 +1,178 @@
 {
-  "dataset": "CICIDS2017 (Friday DDoS + PortScan)",
-  "train_samples": 348560,
-  "test_samples": 87141,
-  "features": 6,
-  "training_time_s": 49.73,
+  "dataset": "CICIDS2017 (Friday DDoS + PortScan) \u2014 raw flow features",
+  "train_samples": 409769,
+  "test_samples": 102443,
+  "features": 68,
+  "feature_names": [
+    "Destination Port",
+    "Flow Duration",
+    "Total Fwd Packets",
+    "Total Backward Packets",
+    "Total Length of Fwd Packets",
+    "Total Length of Bwd Packets",
+    "Fwd Packet Length Max",
+    "Fwd Packet Length Min",
+    "Fwd Packet Length Mean",
+    "Fwd Packet Length Std",
+    "Bwd Packet Length Max",
+    "Bwd Packet Length Min",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow Bytes/s",
+    "Flow Packets/s",
+    "Flow IAT Mean",
+    "Flow IAT Std",
+    "Flow IAT Max",
+    "Flow IAT Min",
+    "Fwd IAT Total",
+    "Fwd IAT Mean",
+    "Fwd IAT Std",
+    "Fwd IAT Max",
+    "Fwd IAT Min",
+    "Bwd IAT Total",
+    "Bwd IAT Mean",
+    "Bwd IAT Std",
+    "Bwd IAT Max",
+    "Bwd IAT Min",
+    "Fwd PSH Flags",
+    "Fwd Header Length",
+    "Bwd Header Length",
+    "Fwd Packets/s",
+    "Bwd Packets/s",
+    "Min Packet Length",
+    "Max Packet Length",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "FIN Flag Count",
+    "SYN Flag Count",
+    "RST Flag Count",
+    "PSH Flag Count",
+    "ACK Flag Count",
+    "URG Flag Count",
+    "ECE Flag Count",
+    "Down/Up Ratio",
+    "Average Packet Size",
+    "Avg Fwd Segment Size",
+    "Avg Bwd Segment Size",
+    "Fwd Header Length.1",
+    "Subflow Fwd Packets",
+    "Subflow Fwd Bytes",
+    "Subflow Bwd Packets",
+    "Subflow Bwd Bytes",
+    "Init_Win_bytes_forward",
+    "Init_Win_bytes_backward",
+    "act_data_pkt_fwd",
+    "min_seg_size_forward",
+    "Active Mean",
+    "Active Std",
+    "Active Max",
+    "Active Min",
+    "Idle Mean",
+    "Idle Std",
+    "Idle Max",
+    "Idle Min"
+  ],
+  "training_time_s": 52.72,
   "random_forest": {
-    "accuracy": 80.59,
-    "precision": 81.25,
-    "recall": 80.59,
-    "f1_score": 80.48
+    "accuracy": 99.99,
+    "precision": 99.99,
+    "recall": 99.99,
+    "f1_score": 99.99,
+    "confusion_matrix": [
+      [
+        45050,
+        1
+      ],
+      [
+        8,
+        57384
+      ]
+    ],
+    "training_time_s": 52.72
+  },
+  "decision_tree": {
+    "accuracy": 99.98,
+    "precision": 99.98,
+    "recall": 99.98,
+    "f1_score": 99.98,
+    "confusion_matrix": [
+      [
+        45042,
+        9
+      ],
+      [
+        7,
+        57385
+      ]
+    ],
+    "training_time_s": 21.06
   },
   "isolation_forest": {
-    "anomalies_detected": 4304,
-    "anomaly_rate_pct": 4.94
+    "anomalies_detected": 5024,
+    "total_tested": 102443,
+    "anomaly_rate_pct": 4.9
   },
   "top_features": [
-    "total_bytes",
-    "mean_bytes",
-    "total_flows",
-    "unique_dst_ips",
-    "unique_dst_ports",
-    "proto_entropy"
+    {
+      "feature": "Avg Fwd Segment Size",
+      "importance": 0.121505
+    },
+    {
+      "feature": "Init_Win_bytes_forward",
+      "importance": 0.094168
+    },
+    {
+      "feature": "Fwd Packet Length Max",
+      "importance": 0.079149
+    },
+    {
+      "feature": "Fwd Packet Length Mean",
+      "importance": 0.073865
+    },
+    {
+      "feature": "Subflow Fwd Bytes",
+      "importance": 0.052486
+    },
+    {
+      "feature": "Total Length of Fwd Packets",
+      "importance": 0.039998
+    },
+    {
+      "feature": "Average Packet Size",
+      "importance": 0.03731
+    },
+    {
+      "feature": "Fwd Header Length.1",
+      "importance": 0.026867
+    },
+    {
+      "feature": "Packet Length Mean",
+      "importance": 0.022947
+    },
+    {
+      "feature": "PSH Flag Count",
+      "importance": 0.022863
+    },
+    {
+      "feature": "Fwd Header Length",
+      "importance": 0.021623
+    },
+    {
+      "feature": "Init_Win_bytes_backward",
+      "importance": 0.021233
+    },
+    {
+      "feature": "Destination Port",
+      "importance": 0.0198
+    },
+    {
+      "feature": "Fwd Packet Length Min",
+      "importance": 0.019373
+    },
+    {
+      "feature": "Bwd Packet Length Mean",
+      "importance": 0.018424
+    }
   ]
 }
